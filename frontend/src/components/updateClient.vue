@@ -1,131 +1,137 @@
 <script>
-import useVuelidate from "@vuelidate/core";
-import { required, email, alpha, numeric } from "@vuelidate/validators";
-import VueMultiselect from "vue-multiselect";
-import axios from "axios";
-import { DateTime } from "luxon";
+import useVuelidate from '@vuelidate/core'
+import { required, email, alpha, numeric } from '@vuelidate/validators'
+import VueMultiselect from 'vue-multiselect'
+import axios from 'axios'
+import { DateTime } from 'luxon'
+const apiURL = import.meta.env.VITE_ROOT_API
 
 export default {
-  props: ["id"],
+  props: ['id'],
   components: { VueMultiselect },
   setup() {
-    return { v$: useVuelidate({ $autoDirty: true }) };
+    return { v$: useVuelidate({ $autoDirty: true }) }
   },
   data() {
     return {
-      //for multi select
-      eventsChosen: [],
-      //for multi select event Data
-      eventData: [],
-      // Client Data
+      // rename events arrays for added clarity
+      eventsAll: [],
+      eventsSelected: [],
+      eventsRegistered: [],
       client: {
-        firstName: "",
-        middleName: "",
-        lastName: "",
-        email: "",
-        phoneNumbers: [
-          {
-            primaryPhone: "",
-            secondaryPhone: "",
-          },
-        ],
-        address: {
-          line1: "",
-          line2: "",
-          city: "",
-          county: "",
-          zip: "",
+        firstName: '',
+        middleName: '',
+        lastName: '',
+        email: '',
+        phoneNumber: {
+          primary: '',
+          alternate: ''
         },
-      },
-      // list of events shown in table
-      clientEvents: [],
-    };
+        address: {
+          line1: '',
+          line2: '',
+          city: '',
+          county: '',
+          zip: ''
+        }
+      }
+    }
+  },
+  created() {
+    axios.get(`${apiURL}/clients/id/${this.$route.params.id}`).then((res) => {
+      // simplified setting client
+      this.client = res.data
+    })
+    axios.get(`${apiURL}/events`).then((res) => {
+      // simplified setting eventsAll
+      this.eventsAll = res.data
+    })
+    this.getEventsRegistered()
   },
   mounted() {
-    window.scrollTo(0, 0);
-  },
-  beforeMount() {
-    axios
-      .get(
-        import.meta.env.VITE_ROOT_API +
-          `/primarydata/id/${this.$route.params.id}`
-      )
-      .then((resp) => {
-        let data = resp.data[0];
-        this.client.firstName = data.firstName;
-        this.client.middleName = data.middleName;
-        this.client.lastName = data.lastName;
-        this.client.email = data.email;
-        this.client.phoneNumbers[0].primaryPhone =
-          data.phoneNumbers[0].primaryPhone;
-        this.client.phoneNumbers[0].secondaryPhone =
-          data.phoneNumbers[0].secondaryPhone;
-        this.client.address.line1 = data.address.line1;
-        this.client.address.line2 = data.address.line2;
-        this.client.address.city = data.address.city;
-        this.client.address.county = data.address.county;
-        this.client.address.zip = data.address.zip;
-      });
-    axios
-      .get(
-        import.meta.env.VITE_ROOT_API +
-          `/eventdata/client/${this.$route.params.id}`
-      )
-      .then((resp) => {
-        let data = resp.data;
-        resp.data.forEach((event) => {
-          this.clientEvents.push({
-            eventName: event.eventName,
-            eventDate: event.date,
-          });
-        });
-      });
-    axios.get(import.meta.env.VITE_ROOT_API + `/eventdata`).then((resp) => {
-      let data = resp.data;
-      for (let i = 0; i < data.length; i++) {
-        this.eventData.push({
-          eventName: data[i].eventName,
-          _id: data[i]._id,
-          attendees: data[i].attendees,
-        });
-      }
-    });
+    window.scrollTo(0, 0)
   },
   methods: {
+    // better formattedDate function
     formattedDate(datetimeDB) {
-      return DateTime.fromISO(datetimeDB).plus({ days: 1 }).toLocaleString();
+      const dt = DateTime.fromISO(datetimeDB, {
+        zone: 'utc'
+      })
+      return dt
+        .setZone(DateTime.now().zoneName, { keepLocalTime: true })
+        .toLocaleString()
     },
-    handleClientUpdate() {
-      let apiURL = import.meta.env.VITE_ROOT_API + `/primarydata/${this.id}`;
-      axios.put(apiURL, this.client).then(() => {
-        alert("Update has been saved.");
-        this.$router.back().catch((error) => {
-          console.log(error);
-        });
-      });
+    nameWithDate({ name, date }) {
+      return `${name} (${this.formattedDate(date)})`
+    },
+    getEventsRegistered() {
+      axios
+        .get(`${apiURL}/events/client/${this.$route.params.id}`)
+        .then((res) => {
+          // simplified setting eventsRegistered
+          this.eventsRegistered = res.data
+        })
+    },
+    async updateClient() {
+      // Checks to see if there are any errors in validation
+      const isFormCorrect = await this.v$.$validate()
+      // If no errors found. isFormCorrect = True then the form is submitted
+      if (isFormCorrect) {
+        axios
+          .put(`${apiURL}/clients/update/${this.id}`, this.client)
+          .then(() => {
+            alert('Update has been saved.')
+            this.$router.back()
+          })
+      }
     },
     addToEvent() {
-      this.eventsChosen.forEach((event) => {
-        let apiURL =
-          import.meta.env.VITE_ROOT_API + `/eventdata/addAttendee/` + event._id;
-        axios.put(apiURL, { attendee: this.$route.params.id }).then(() => {
-          this.clientEvents = [];
-          axios
-            .get(
-              import.meta.env.VITE_ROOT_API +
-                `/eventdata/client/${this.$route.params.id}`
-            )
-            .then((resp) => {
-              let data = resp.data;
-              for (let i = 0; i < data.length; i++) {
-                this.clientEvents.push({
-                  eventName: data[i].eventName,
-                });
-              }
-            });
-        });
-      });
+      this.eventsSelected.forEach((event) => {
+        axios
+          .put(`${apiURL}/events/register`, null, {
+            params: { event: event._id, client: this.id }
+          })
+          .then(() => this.getEventsRegistered())
+          .catch((error) => {
+            if (error.response.data) {
+              alert(`${event.name}: ${error.response.data}`)
+            }
+          })
+      })
+      // clear events selection after attempting to register for events
+      this.eventsSelected = []
     },
+    // replaces client hard delete
+    // find all events where client appears in attendees array and pull it
+    // then pull org from client org array
+    deregisterClient() {
+      axios
+        .get(`${apiURL}/events/client/${this.id}`)
+        .then((res) => {
+          res.data.forEach((e) => {
+            axios.put(`${apiURL}/events/deregister`, null, {
+              params: { event: e._id, client: this.id }
+            })
+          })
+        })
+        .finally(
+          axios.put(`${apiURL}/clients/deregister/${this.id}`).then(() => {
+            alert('Client has been deleted.')
+            this.$router.push({ name: 'findclient' })
+          })
+        )
+    },
+    // unused hard delete method
+    deleteClient() {
+      axios.delete(`${apiURL}/clients/${this.id}`).then(() => {
+        alert('Client has been deleted.')
+        this.$router.push({ name: 'findclient' })
+      })
+    },
+    // function to allow click through to event details
+    editEvent(eventID) {
+      this.$router.push({ name: 'eventdetails', params: { id: eventID } })
+    }
   },
   validations() {
     return {
@@ -133,30 +139,34 @@ export default {
         firstName: { required, alpha },
         lastName: { required, alpha },
         email: { email },
-        phoneNumbers: [
-          {
-            primaryPhone: { required, numeric },
-          },
-        ],
-      },
-    };
-  },
-};
+        phoneNumber: {
+          primary: { required, numeric }
+        }
+      }
+    }
+  }
+}
 </script>
 <template>
   <main>
-    <h1 class="font-bold text-4xl text-red-700 tracking-widest text-center mt-10">Update Client</h1>
+    <h1
+      class="font-bold text-4xl text-red-700 tracking-widest text-center mt-10"
+    >
+      Update Client
+    </h1>
     <div class="px-10 py-20">
       <!-- @submit.prevent stops the submit event from reloading the page-->
       <form @submit.prevent="handleSubmitForm">
         <!-- grid container -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10">
+        <div
+          class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10"
+        >
           <h2 class="text-2xl font-bold">Personal Details</h2>
           <!-- form field -->
           <div class="flex flex-col">
             <label class="block">
               <span class="text-gray-700">First Name</span>
-              <span style="color:#ff0000">*</span>
+              <span style="color: #ff0000">*</span>
               <input
                 type="text"
                 class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
@@ -168,7 +178,9 @@ export default {
                   class="text-red-700"
                   v-for="error of v$.client.firstName.$errors"
                   :key="error.$uid"
-                >{{ error.$message }}!</p>
+                >
+                  {{ error.$message }}!
+                </p>
               </span>
             </label>
           </div>
@@ -190,7 +202,7 @@ export default {
           <div class="flex flex-col">
             <label class="block">
               <span class="text-gray-700">Last Name</span>
-              <span style="color:#ff0000">*</span>
+              <span style="color: #ff0000">*</span>
               <input
                 type="text"
                 class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
@@ -202,7 +214,9 @@ export default {
                   class="text-red-700"
                   v-for="error of v$.client.lastName.$errors"
                   :key="error.$uid"
-                >{{ error.$message }}!</p>
+                >
+                  {{ error.$message }}!
+                </p>
               </span>
             </label>
           </div>
@@ -222,7 +236,9 @@ export default {
                   class="text-red-700"
                   v-for="error of v$.client.email.$errors"
                   :key="error.$uid"
-                >{{ error.$message }}!</p>
+                >
+                  {{ error.$message }}!
+                </p>
               </span>
             </label>
           </div>
@@ -230,19 +246,24 @@ export default {
           <div class="flex flex-col">
             <label class="block">
               <span class="text-gray-700">Phone Number</span>
-              <span style="color:#ff0000">*</span>
+              <span style="color: #ff0000">*</span>
               <input
                 type="text"
                 class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
                 pattern="[0-9]{3}[0-9]{3}[0-9]{4}"
-                v-model="client.phoneNumbers[0].primaryPhone"
+                v-model="client.phoneNumber.primary"
               />
-              <span class="text-black" v-if="v$.client.phoneNumbers[0].primaryPhone.$error">
+              <span
+                class="text-black"
+                v-if="v$.client.phoneNumber.primary.$error"
+              >
                 <p
                   class="text-red-700"
-                  v-for="error of v$.client.phoneNumbers[0].primaryPhone.$errors"
+                  v-for="error of v$.client.phoneNumber.primary.$errors"
                   :key="error.$uid"
-                >{{ error.$message }}!</p>
+                >
+                  {{ error.$message }}!
+                </p>
               </span>
             </label>
           </div>
@@ -254,14 +275,16 @@ export default {
                 type="text"
                 class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
                 pattern="[0-9]{3}[0-9]{3}[0-9]{4}"
-                v-model="client.phoneNumbers[0].secondaryPhone"
+                v-model="client.phoneNumber.alternate"
               />
             </label>
           </div>
         </div>
 
         <!-- grid container -->
-        <div class="mt-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10">
+        <div
+          class="mt-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10"
+        >
           <h2 class="text-2xl font-bold">Address Details</h2>
           <!-- form field -->
           <div class="flex flex-col">
@@ -289,7 +312,7 @@ export default {
           <div class="flex flex-col">
             <label class="block">
               <span class="text-gray-700">City</span>
-              <span style="color:#ff0000">*</span>
+              <span style="color: #ff0000">*</span>
               <input
                 type="text"
                 class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
@@ -324,27 +347,44 @@ export default {
         </div>
 
         <!-- grid container -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10">
+        <div
+          class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10"
+        >
           <div class="flex justify-between mt-10 mr-20">
             <button
-              @click="handleClientUpdate"
+              @click="updateClient"
+              type="submit"
+              class="bg-green-700 text-white rounded"
+            >
+              Update Client
+            </button>
+          </div>
+          <div class="flex justify-between mt-10 mr-20">
+            <button
+              @click="deregisterClient"
               type="submit"
               class="bg-red-700 text-white rounded"
-            >Update Client</button>
+            >
+              Delete Client
+            </button>
           </div>
           <div class="flex justify-between mt-10 mr-20">
             <button
               type="reset"
               class="border border-red-700 bg-white text-red-700 rounded"
-              @click="$router.go(-1)"
-            >Go back</button>
+              @click="$router.back()"
+            >
+              Go back
+            </button>
           </div>
         </div>
 
         <hr class="mt-10 mb-10" />
 
         <!-- Client Event Information -->
-        <div class="mt-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10">
+        <div
+          class="mt-10 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10"
+        >
           <h2 class="text-2xl font-bold">Events for Client</h2>
 
           <div class="flex flex-col col-span-2">
@@ -356,29 +396,42 @@ export default {
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-300">
-                <tr v-for="event in clientEvents" :key="event._id">
-                  <td class="p-2 text-left">{{ event.eventName }}</td>
-                  <td class="p-2 text-left">{{ formattedDate(event.eventDate) }}</td>
+                <!-- allow click through to event details -->
+                <tr
+                  @click="editEvent(event._id)"
+                  v-for="event in eventsRegistered"
+                  :key="event._id"
+                >
+                  <td class="p-2 text-left">{{ event.name }}</td>
+                  <td class="p-2 text-left">
+                    {{ formattedDate(event.date) }}
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
           <div class="flex flex-col">
-            <label class="typo__label">Select Events to be added</label>
+            <!-- fixed weird selection duplication bug -->
             <VueMultiselect
               class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-              v-model="eventsChosen"
-              :options="eventData"
+              v-model="eventsSelected"
+              :options="eventsAll"
+              :custom-label="nameWithDate"
               :multiple="true"
-              label="eventName"
-            ></VueMultiselect>
+              :close-on-select="true"
+              placeholder="Select Events to be added"
+              label="date"
+              track-by="name"
+            />
             <div class="flex justify-between">
               <button
                 @click="addToEvent"
                 type="submit"
                 class="mt-5 bg-red-700 text-white rounded"
-              >Add Client to Events</button>
+              >
+                Add Client to Selected Events
+              </button>
             </div>
           </div>
         </div>
